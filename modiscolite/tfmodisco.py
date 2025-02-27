@@ -6,7 +6,7 @@ import numpy as np
 
 import scipy
 import scipy.sparse
-
+import time
 from collections import OrderedDict
 from collections import defaultdict
 
@@ -153,115 +153,190 @@ def _filter_by_correlation(seqlets, seqlet_neighbors, coarse_affmat_nn,
 	return filtered_seqlets, filtered_neighbors, filtered_affmat_nn
 
 
-def seqlets_to_patterns(seqlets, track_set, track_signs=None, 
-	min_overlap_while_sliding=0.7, nearest_neighbors_to_compute=500, 
-	affmat_correlation_threshold=0.15, tsne_perplexity=10.0, 
-	n_leiden_iterations=-1, n_leiden_runs=50, frac_support_to_trim_to=0.2,
-	min_num_to_trim_to=30, trim_to_window_size=20, initial_flank_to_add=5,
-	final_flank_to_add=0,
-	prob_and_pertrack_sim_merge_thresholds=[(0.8,0.8), (0.5, 0.85), (0.2, 0.9)],
-	prob_and_pertrack_sim_dealbreaker_thresholds=[(0.4, 0.75), (0.2,0.8), (0.1, 0.85), (0.0,0.9)],
-	subcluster_perplexity=50, merging_max_seqlets_subsample=200,
-	final_min_cluster_size=20,min_ic_in_window=0.6, min_ic_windowsize=6,
-	ppm_pseudocount=0.001):
+def seqlets_to_patterns(
+    seqlets,
+    track_set,
+    track_signs=None,
+    min_overlap_while_sliding=0.7,
+    nearest_neighbors_to_compute=500,
+    affmat_correlation_threshold=0.15,
+    tsne_perplexity=10.0,
+    n_leiden_iterations=-1,
+    n_leiden_runs=50,
+    frac_support_to_trim_to=0.2,
+    min_num_to_trim_to=30,
+    trim_to_window_size=20,
+    initial_flank_to_add=5,
+    final_flank_to_add=0,
+    prob_and_pertrack_sim_merge_thresholds=[(0.8, 0.8), (0.5, 0.85), (0.2, 0.9)],
+    prob_and_pertrack_sim_dealbreaker_thresholds=[
+        (0.4, 0.75),
+        (0.2, 0.8),
+        (0.1, 0.85),
+        (0.0, 0.9),
+    ],
+    subcluster_perplexity=50,
+    merging_max_seqlets_subsample=300,
+    final_min_cluster_size=20,
+    min_ic_in_window=0.6,
+    min_ic_windowsize=6,
+    ppm_pseudocount=0.001,
+    skip_subpattern=False,
+):
 
-	bg_freq = np.mean([seqlet.sequence for seqlet in seqlets], axis=(0, 1)) 
+    bg_freq = np.mean([seqlet.sequence for seqlet in seqlets], axis=(0, 1))
 
-	seqlets_sorter = (lambda arr: sorted(arr, key=lambda x:
-		-np.sum(np.abs(x.contrib_scores))))
+    seqlets_sorter = lambda arr: sorted(
+        arr, key=lambda x: -np.sum(np.abs(x.contrib_scores))
+    )
 
-	seqlets = seqlets_sorter(seqlets)
+    seqlets = seqlets_sorter(seqlets)
 
-	for round_idx in range(2):
-		if len(seqlets) == 0:
-			return None
+    for round_idx in range(2):
+        if len(seqlets) == 0:
+            return None
 
-		# Step 1: Generate coarse resolution
-		coarse_affmat_nn, seqlet_neighbors = affinitymat.cosine_similarity_from_seqlets(
-			seqlets=seqlets, n_neighbors=nearest_neighbors_to_compute, sign=track_signs)
+        # Step 1: Generate coarse resolution
+        start = time.time()
+        coarse_affmat_nn, seqlet_neighbors = affinitymat.cosine_similarity_from_seqlets(
+            seqlets=seqlets, n_neighbors=nearest_neighbors_to_compute, sign=track_signs
+        )
+        cur_time = time.time()
+        print("Coarse time: {}".format(int(cur_time - start)))
 
-		# Step 2: Generate fine representation
-		fine_affmat_nn = affinitymat.jaccard_from_seqlets(
-			seqlets=seqlets, seqlet_neighbors=seqlet_neighbors,
-			min_overlap=min_overlap_while_sliding)
+        # Step 2: Generate fine representation
+        start = time.time()
+        fine_affmat_nn = affinitymat.jaccard_from_seqlets(
+            seqlets=seqlets,
+            seqlet_neighbors=seqlet_neighbors,
+            min_overlap=min_overlap_while_sliding,
+        )
+        cur_time = time.time()
+        print("Fine time: {}".format(int(cur_time - start)))
 
-		if round_idx == 0:
-			filtered_seqlets, seqlet_neighbors, filtered_affmat_nn = (
-				_filter_by_correlation(seqlets, seqlet_neighbors, 
-					coarse_affmat_nn, fine_affmat_nn, 
-					affmat_correlation_threshold))
-		else:
-			filtered_seqlets = seqlets
-			filtered_affmat_nn = fine_affmat_nn
+        if round_idx == 0:
+            start = time.time()
+            filtered_seqlets, seqlet_neighbors, filtered_affmat_nn = (
+                _filter_by_correlation(
+                    seqlets,
+                    seqlet_neighbors,
+                    coarse_affmat_nn,
+                    fine_affmat_nn,
+                    affmat_correlation_threshold,
+                )
+            )
+            cur_time = time.time()
+            print("Filtering time: {}".format(int(cur_time - start)))
+        else:
+            filtered_seqlets = seqlets
+            filtered_affmat_nn = fine_affmat_nn
 
-		del coarse_affmat_nn
-		del fine_affmat_nn
-		del seqlets
+        del coarse_affmat_nn
+        del fine_affmat_nn
+        del seqlets
 
-		# Step 4: Density adaptation
-		csr_density_adapted_affmat = _density_adaptation(
-			filtered_affmat_nn, seqlet_neighbors, tsne_perplexity)
+        # Step 4: Density adaptation
+        start = time.time()
+        csr_density_adapted_affmat = _density_adaptation(
+            filtered_affmat_nn, seqlet_neighbors, tsne_perplexity
+        )
+        cur_time = time.time()
+        print("Density adaptation time: {}".format(int(cur_time - start)))
 
-		del filtered_affmat_nn
-		del seqlet_neighbors
+        del filtered_affmat_nn
+        del seqlet_neighbors
 
-		# Step 5: Clustering
-		cluster_indices = cluster.LeidenCluster(
-			csr_density_adapted_affmat,
-			n_seeds=n_leiden_runs,
-			n_leiden_iterations=n_leiden_iterations)
+        # Step 5: Clustering
+        start = time.time()
+        cluster_indices = cluster.LeidenCluster(
+            csr_density_adapted_affmat,
+            n_seeds=n_leiden_runs,
+            n_leiden_iterations=n_leiden_iterations,
+        )
+        end = time.time()
+        print("Clustering time: {}".format(int(end - start)))
 
-		del csr_density_adapted_affmat
+        del csr_density_adapted_affmat
 
-		patterns = _patterns_from_clusters(filtered_seqlets, 
-			track_set=track_set, 
-			min_overlap=min_overlap_while_sliding, 
-			min_frac=frac_support_to_trim_to, 
-			min_num=min_num_to_trim_to, 
-			flank_to_add=initial_flank_to_add, 
-			window_size=trim_to_window_size, 
-			bg_freq=bg_freq, 
-			cluster_indices=cluster_indices, 
-			track_sign=track_signs)
+        start = time.time()
+        patterns = _patterns_from_clusters(
+            filtered_seqlets,
+            track_set=track_set,
+            min_overlap=min_overlap_while_sliding,
+            min_frac=frac_support_to_trim_to,
+            min_num=min_num_to_trim_to,
+            flank_to_add=initial_flank_to_add,
+            window_size=trim_to_window_size,
+            bg_freq=bg_freq,
+            cluster_indices=cluster_indices,
+            track_sign=track_signs,
+        )
+        end = time.time()
+        print("Pattern generation time: {}".format(int(end - start)))
 
-		#obtain unique seqlets from adjusted motifs
-		seqlets = list(dict([(y.string, y)
-						 for x in patterns for y in x.seqlets]).values())
+        # obtain unique seqlets from adjusted motifs
+        seqlets = list(
+            dict([(y.string, y) for x in patterns for y in x.seqlets]).values()
+        )
 
-	del seqlets
+    del seqlets
 
-	merged_patterns, pattern_merge_hierarchy = aggregator._detect_spurious_merging(
-		patterns=patterns, track_set=track_set, perplexity=subcluster_perplexity, 
-		min_in_subcluster=max(final_min_cluster_size, subcluster_perplexity), 
-		min_overlap=min_overlap_while_sliding,
-		prob_and_pertrack_sim_merge_thresholds=prob_and_pertrack_sim_merge_thresholds,
-		prob_and_pertrack_sim_dealbreaker_thresholds=prob_and_pertrack_sim_dealbreaker_thresholds,
-		min_frac=frac_support_to_trim_to, min_num=min_num_to_trim_to,
-		flank_to_add=initial_flank_to_add,
-		window_size=trim_to_window_size, bg_freq=bg_freq,
-		max_seqlets_subsample=merging_max_seqlets_subsample,
-		n_seeds=n_leiden_runs)
+    start = time.time()
+    merged_patterns, pattern_merge_hierarchy = aggregator._detect_spurious_merging(
+        patterns=patterns,
+        track_set=track_set,
+        perplexity=subcluster_perplexity,
+        min_in_subcluster=max(final_min_cluster_size, subcluster_perplexity),
+        min_overlap=min_overlap_while_sliding,
+        prob_and_pertrack_sim_merge_thresholds=prob_and_pertrack_sim_merge_thresholds,
+        prob_and_pertrack_sim_dealbreaker_thresholds=prob_and_pertrack_sim_dealbreaker_thresholds,
+        min_frac=frac_support_to_trim_to,
+        min_num=min_num_to_trim_to,
+        flank_to_add=initial_flank_to_add,
+        window_size=trim_to_window_size,
+        bg_freq=bg_freq,
+        max_seqlets_subsample=merging_max_seqlets_subsample,
+        n_seeds=n_leiden_runs,
+    )
+    # Now start merging patterns
+    merged_patterns = sorted(merged_patterns, key=lambda x: -len(x.seqlets))
+    end = time.time()
+    print("Merging patterns time: {}".format(int(end - start)))
 
-	#Now start merging patterns 
-	merged_patterns = sorted(merged_patterns, key=lambda x: -len(x.seqlets))
+    start = time.time()
+    patterns = _filter_patterns(
+        merged_patterns,
+        min_seqlet_support=final_min_cluster_size,
+        window_size=min_ic_windowsize,
+        min_ic_in_window=min_ic_in_window,
+        background=bg_freq,
+        ppm_pseudocount=ppm_pseudocount,
+    )
+    end = time.time()
+    print("Filtering patterns time: {}".format(int(end - start)))
 
-	patterns = _filter_patterns(merged_patterns, 
-		min_seqlet_support=final_min_cluster_size, 
-		window_size=min_ic_windowsize, min_ic_in_window=min_ic_in_window, 
-		background=bg_freq, ppm_pseudocount=ppm_pseudocount)
+    # apply subclustering procedure on the final patterns
+    if not skip_subpattern:
+        start = time.time()
+        for patternidx, pattern in enumerate(patterns):
+            pattern = aggregator._expand_seqlets_to_fill_pattern(
+                pattern,
+                track_set,
+                left_flank_to_add=final_flank_to_add,
+                right_flank_to_add=final_flank_to_add,
+            )
 
-	#apply subclustering procedure on the final patterns
-	for patternidx, pattern in enumerate(patterns):
-		pattern = aggregator._expand_seqlets_to_fill_pattern(pattern, track_set, 
-			left_flank_to_add=final_flank_to_add,
-			right_flank_to_add=final_flank_to_add)
+            pattern.compute_subpatterns(
+                subcluster_perplexity,
+                n_seeds=n_leiden_runs,
+                n_iterations=n_leiden_iterations,
+            )
 
-		pattern.compute_subpatterns(subcluster_perplexity, 
-			n_seeds=n_leiden_runs, n_iterations=n_leiden_iterations)
-		
-		patterns[patternidx] = pattern
+            patterns[patternidx] = pattern
+        end = time.time()
+        print("Subclustering time: {}".format(int(end - start)))
 
-	return patterns
+    return patterns
 
 
 def TFMoDISco(one_hot, hypothetical_contribs, sliding_window_size=21, 
