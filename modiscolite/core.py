@@ -119,7 +119,7 @@ class SeqletSet():
 		self.subclusters = None
 		self.subcluster_to_subpattern = None
 
-	def compute_subpatterns(self, perplexity, n_seeds, n_iterations=-1):
+	def compute_subpatterns(self, perplexity, n_seeds, n_iterations=2):
 		#this method assumes all the seqlets have been expanded so they
 		# all start at 0
 		X = util.get_2d_data_from_patterns(self.seqlets)[0]
@@ -207,7 +207,12 @@ class SeqletSet():
 		ppc = self.per_position_counts[:, None]
 		ppc = ppc + 1E-7 * (ppc == 0)
 
-		self._sequence_sum[:n] += seqlet.sequence
+		try:
+			self._sequence_sum[:n] += seqlet.sequence
+		except ValueError:
+			print(self._sequence_sum.shape, seqlet.sequence.shape)
+			print(seqlet.string)
+			print(seqlet.contrib_scores.shape, self._contrib_sum.shape)
 		self._contrib_sum[:n] += seqlet.contrib_scores
 		self._hypothetical_sum[:n] += seqlet.hypothetical_contribs
 

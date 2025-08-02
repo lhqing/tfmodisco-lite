@@ -182,6 +182,7 @@ def seqlets_to_patterns(
     min_ic_windowsize=6,
     ppm_pseudocount=0.001,
     skip_subpattern=False,
+	verbose=False,
 ):
 
     bg_freq = np.mean([seqlet.sequence for seqlet in seqlets], axis=(0, 1))
@@ -202,7 +203,8 @@ def seqlets_to_patterns(
             seqlets=seqlets, n_neighbors=nearest_neighbors_to_compute, sign=track_signs
         )
         cur_time = time.time()
-        print("Coarse time: {}".format(int(cur_time - start)))
+        if verbose:
+            print("Coarse time: {}".format(int(cur_time - start)))
 
         # Step 2: Generate fine representation
         start = time.time()
@@ -212,7 +214,8 @@ def seqlets_to_patterns(
             min_overlap=min_overlap_while_sliding,
         )
         cur_time = time.time()
-        print("Fine time: {}".format(int(cur_time - start)))
+        if verbose:
+            print("Fine time: {}".format(int(cur_time - start)))
 
         if round_idx == 0:
             start = time.time()
@@ -226,7 +229,8 @@ def seqlets_to_patterns(
                 )
             )
             cur_time = time.time()
-            print("Filtering time: {}".format(int(cur_time - start)))
+            if verbose:
+                print("Filtering time: {}".format(int(cur_time - start)))
         else:
             filtered_seqlets = seqlets
             filtered_affmat_nn = fine_affmat_nn
@@ -241,7 +245,8 @@ def seqlets_to_patterns(
             filtered_affmat_nn, seqlet_neighbors, tsne_perplexity
         )
         cur_time = time.time()
-        print("Density adaptation time: {}".format(int(cur_time - start)))
+        if verbose:
+            print("Density adaptation time: {}".format(int(cur_time - start)))
 
         del filtered_affmat_nn
         del seqlet_neighbors
@@ -254,7 +259,8 @@ def seqlets_to_patterns(
             n_leiden_iterations=n_leiden_iterations,
         )
         end = time.time()
-        print("Clustering time: {}".format(int(end - start)))
+        if verbose:
+            print("Clustering time: {}".format(int(end - start)))
 
         del csr_density_adapted_affmat
 
@@ -272,7 +278,8 @@ def seqlets_to_patterns(
             track_sign=track_signs,
         )
         end = time.time()
-        print("Pattern generation time: {}".format(int(end - start)))
+        if verbose:
+            print("Pattern generation time: {}".format(int(end - start)))
 
         # obtain unique seqlets from adjusted motifs
         seqlets = list(
@@ -301,7 +308,8 @@ def seqlets_to_patterns(
     # Now start merging patterns
     merged_patterns = sorted(merged_patterns, key=lambda x: -len(x.seqlets))
     end = time.time()
-    print("Merging patterns time: {}".format(int(end - start)))
+    if verbose:
+        print("Merging patterns time: {}".format(int(end - start)))
 
     start = time.time()
     patterns = _filter_patterns(
@@ -313,7 +321,8 @@ def seqlets_to_patterns(
         ppm_pseudocount=ppm_pseudocount,
     )
     end = time.time()
-    print("Filtering patterns time: {}".format(int(end - start)))
+    if verbose:
+        print("Filtering patterns time: {}".format(int(end - start)))
 
     # apply subclustering procedure on the final patterns
     if not skip_subpattern:
@@ -334,7 +343,8 @@ def seqlets_to_patterns(
 
             patterns[patternidx] = pattern
         end = time.time()
-        print("Subclustering time: {}".format(int(end - start)))
+        if verbose:
+            print("Subclustering time: {}".format(int(end - start)))
 
     return patterns
 
@@ -384,10 +394,10 @@ def TFMoDISco(one_hot, hypothetical_contribs, sliding_window_size=21,
 
 	del seqlets
 
+	print("Extracted total of {} positive seqlets".format(len(pos_seqlets)))
 	if len(pos_seqlets) > min_metacluster_size:
 		pos_seqlets = pos_seqlets[:max_seqlets_per_metacluster]
-		if verbose:
-			print("Using {} positive seqlets".format(len(pos_seqlets)))
+		print("Using {} positive seqlets".format(len(pos_seqlets)))
 
 		pos_patterns = seqlets_to_patterns(seqlets=pos_seqlets,
 			track_set=track_set, 
@@ -414,10 +424,10 @@ def TFMoDISco(one_hot, hypothetical_contribs, sliding_window_size=21,
 	else:
 		pos_patterns = None
 
+	print("Extracted total of {} negative seqlets".format(len(neg_seqlets)))
 	if len(neg_seqlets) > min_metacluster_size:
 		neg_seqlets = neg_seqlets[:max_seqlets_per_metacluster]
-		if verbose:
-			print("Extracted {} negative seqlets".format(len(neg_seqlets)))
+		print("Using {} negative seqlets".format(len(neg_seqlets)))
 
 		neg_patterns = seqlets_to_patterns(seqlets=neg_seqlets,
 			track_set=track_set, 
